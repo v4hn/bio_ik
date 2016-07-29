@@ -422,6 +422,7 @@ namespace bio_ik {
     } else {
       //cout << "Accuracy: " << solutionFitness << endl;
     }
+    
     //cout << "Generations: " << generations << " (" << ((double)(clock() - begin_time) / CLOCKS_PER_SEC) << "s)" << endl;
     return true;
   }
