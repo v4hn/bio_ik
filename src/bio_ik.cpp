@@ -418,9 +418,9 @@ namespace bio_ik {
 
     if(seedFitness <= solutionFitness) {
       solution = ik_seed_state;
-      cout << "Accuracy: " << seedFitness << endl;
+      //cout << "Accuracy: " << seedFitness << endl;
     } else {
-      cout << "Accuracy: " << solutionFitness << endl;
+      //cout << "Accuracy: " << solutionFitness << endl;
     }
     //cout << "Generations: " << generations << " (" << ((double)(clock() - begin_time) / CLOCKS_PER_SEC) << "s)" << endl;
     return true;
