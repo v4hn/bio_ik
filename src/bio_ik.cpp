@@ -114,8 +114,8 @@ namespace bio_ik {
 
       void GetRandomConfiguration(vector<double>& configuration);
 
-      double IK_FitnessFunction(double* &input, int &dimensionality, const geometry_msgs::Pose&) const;
-      double IK_BalancedFitnessFunction(const vector<double>& input, int &dimensionality, const geometry_msgs::Pose&) const;
+      double IK_FitnessFunction(double* &input, const geometry_msgs::Pose&) const;
+      double IK_BalancedFitnessFunction(const vector<double>& input, const geometry_msgs::Pose&) const;
     private:
 
   };
@@ -131,7 +131,7 @@ namespace bio_ik {
     return 2.0 * acos(dot);
   }
 
-  double BIO_IK::IK_FitnessFunction(double* &input, int &dimensionality, const geometry_msgs::Pose& target) const {
+  double BIO_IK::IK_FitnessFunction(double* &input, const geometry_msgs::Pose& target) const {
     geometry_msgs::Pose eePose, basePose;
     getPositionFK_BioIK(input, eePose, basePose);
     
@@ -164,7 +164,7 @@ namespace bio_ik {
     return random*dP/angularScale + (1.0-random)*dR;
   }
 
-  double BIO_IK::IK_BalancedFitnessFunction(const vector<double>& input, int &dimensionality, const geometry_msgs::Pose& target) const {
+  double BIO_IK::IK_BalancedFitnessFunction(const vector<double>& input, const geometry_msgs::Pose& target) const {
     geometry_msgs::Pose eePose, basePose;
     getPositionFK_BioIK(input, eePose, basePose);
     
@@ -470,19 +470,13 @@ namespace bio_ik {
     KDL::Frame frame;
     tf::poseMsgToKDL(ik_pose,frame);
 
-    solution.resize(JointCount);
-
-    int size = 12;
-    int elites = 3;
-    int dimensionality = JointCount;
-    Dimension* dimensions = new Dimension[dimensionality];
-    for(int i=0; i<dimensionality; i++) {
+    Dimension* dimensions = new Dimension[JointCount];
+    for(int i=0; i<JointCount; i++) {
       dimensions[i].Min = limitsMin(i);
       dimensions[i].Max = limitsMax(i);
     }
-    Evolution evolution(size, elites, dimensionality, dimensions, boost::bind(&BIO_IK::IK_FitnessFunction, this, _1, _2, ik_pose), ik_seed_state);
-
-    double seedFitness = IK_BalancedFitnessFunction(ik_seed_state, dimensionality, ik_pose);
+    Evolution evolution(12, 3, JointCount, dimensions, boost::bind(&BIO_IK::IK_FitnessFunction, this, _1, ik_pose), ik_seed_state);
+    double seedFitness = IK_BalancedFitnessFunction(ik_seed_state, ik_pose);
 
     //double accuracy = 0.001;
     int generations = 0;
@@ -490,17 +484,18 @@ namespace bio_ik {
       evolution.Evolve();
       generations += 1;
     }
+
+    solution.resize(JointCount);
     for(int i=0; i<JointCount; i++) {
       solution[i] = evolution.GetPrototype().Genes[i];
     }
-
-    double solutionFitness = IK_BalancedFitnessFunction(solution, dimensionality, ik_pose);
+    double solutionFitness = IK_BalancedFitnessFunction(solution, ik_pose);
 
     if(seedFitness <= solutionFitness) {
         solution = ik_seed_state;
-        //cout << "Generations: " << generations << " Accuracy: " <<  seedFitness << " (" << ((double)(clock() - begin_time) / CLOCKS_PER_SEC) << "s)" << endl;
+        cout << "Generations: " << generations << " Fitness: " <<  seedFitness << " (" << ((double)(clock() - begin_time) / CLOCKS_PER_SEC) << "s)" << endl;
     } else {
-        //cout << "Generations: " << generations << " Accuracy: " <<  solutionFitness << " (" << ((double)(clock() - begin_time) / CLOCKS_PER_SEC) << "s)" << endl;
+        cout << "Generations: " << generations << " Fitness: " <<  solutionFitness << " (" << ((double)(clock() - begin_time) / CLOCKS_PER_SEC) << "s)" << endl;
     }
     
     return true;
