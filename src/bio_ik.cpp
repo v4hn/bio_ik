@@ -1,7 +1,6 @@
 #include <iostream>
 #include <time.h>
 #include "ros/ros.h"
-#include <tf2/LinearMath/Quaternion.h>
 
 #include "evolution.h"
 
@@ -34,18 +33,28 @@ namespace bio_ik {
       BIO_IK() {}
       ~BIO_IK() {}
 
-      vector<string> JointNames;
-      vector<string> LinkNames;
-      vector<string> EndEffector;
+      vector<string> JointNames, LinkNames;
+
+      int IndexBase, IndexEE;
 
       KDL::Chain Chain;
+      double ChainLength;
       KDL::JntArray limitsMin, limitsMax;
       int JointCount;
+      int SegmentCount;
 
       boost::shared_ptr<KDL::ChainFkSolverPos_recursive> FK_Solver;
 
       const vector<string>& getJointNames() const { return JointNames; }
       const vector<string>& getLinkNames() const { return LinkNames; }
+
+      void getPositionFK_BioIK(const vector<double> &joint_angles,
+                              geometry_msgs::Pose &eePose,
+                              geometry_msgs::Pose &basePose) const;
+
+      void getPositionFK_BioIK(double* &joint_angles,
+                              geometry_msgs::Pose &eePose,
+                              geometry_msgs::Pose &basePose) const;
 
       bool getPositionFK(const vector<string> &link_names,
                         const vector<double> &joint_angles,
@@ -104,8 +113,10 @@ namespace bio_ik {
                       const string& tip_name,
                       double search_discretization);
 
-      double IK_FitnessFunction(double* &input, int dimensionality, const geometry_msgs::Pose&) const;
-      double IK_BalancedFitnessFunction(const vector<double>& input, int dimensionality, const geometry_msgs::Pose&) const;
+      int getKDLSegmentIndex(const string &name) const;
+
+      double IK_FitnessFunction(double* &input, int &dimensionality, const geometry_msgs::Pose&) const;
+      double IK_BalancedFitnessFunction(const vector<double>& input, int &dimensionality, const geometry_msgs::Pose&) const;
     private:
 
   };
@@ -121,23 +132,22 @@ namespace bio_ik {
     return 2.0 * acos(dot);
   }
 
-  double BIO_IK::IK_FitnessFunction(double* &input, int dimensionality, const geometry_msgs::Pose& target) const {
-    vector<double> Values(input, input + dimensionality);
-    vector<geometry_msgs::Pose> poses;
-    getPositionFK(EndEffector, Values, poses);
+  double BIO_IK::IK_FitnessFunction(double* &input, int &dimensionality, const geometry_msgs::Pose& target) const {
+    geometry_msgs::Pose eePose, basePose;
+    getPositionFK_BioIK(input, eePose, basePose);
     
     //Position Error
-    double diffX = poses[0].position.x - target.position.x;
-    double diffY = poses[0].position.y - target.position.y;
-    double diffZ = poses[0].position.z - target.position.z;
+    double diffX = eePose.position.x - target.position.x;
+    double diffY = eePose.position.y - target.position.y;
+    double diffZ = eePose.position.z - target.position.z;
     double dP = sqrt(diffX*diffX + diffY*diffY + diffZ*diffZ);
     
     //Orientation Error
     double dR = GetAngleDifference(
-      poses[0].orientation.x,
-      poses[0].orientation.y,
-      poses[0].orientation.z,
-      poses[0].orientation.w,
+      eePose.orientation.x,
+      eePose.orientation.y,
+      eePose.orientation.z,
+      eePose.orientation.w,
       target.orientation.x,
       target.orientation.y,
       target.orientation.z,
@@ -147,32 +157,42 @@ namespace bio_ik {
     boost::random::uniform_real_distribution<> gen(0.0, 1.0);
     double random = gen(rng);
 
-    return random*dP + (1.0-random)*dR;
+    diffX = eePose.position.x - basePose.position.x;
+    diffY = eePose.position.y - basePose.position.y;
+    diffZ = eePose.position.z - basePose.position.z;
+    double angularScale = (sqrt(ChainLength*sqrt(diffX*diffX + diffY*diffY + diffZ*diffZ)) / M_PI);
+
+    return random*dP/angularScale + (1.0-random)*dR;
   }
 
-  double BIO_IK::IK_BalancedFitnessFunction(const vector<double>& input, int dimensionality, const geometry_msgs::Pose& target) const {
-    vector<geometry_msgs::Pose> poses;
-    getPositionFK(EndEffector, input, poses);
+  double BIO_IK::IK_BalancedFitnessFunction(const vector<double>& input, int &dimensionality, const geometry_msgs::Pose& target) const {
+    geometry_msgs::Pose eePose, basePose;
+    getPositionFK_BioIK(input, eePose, basePose);
     
     //Position Error
-    double diffX = poses[0].position.x - target.position.x;
-    double diffY = poses[0].position.y - target.position.y;
-    double diffZ = poses[0].position.z - target.position.z;
+    double diffX = eePose.position.x - target.position.x;
+    double diffY = eePose.position.y - target.position.y;
+    double diffZ = eePose.position.z - target.position.z;
     double dP = sqrt(diffX*diffX + diffY*diffY + diffZ*diffZ);
     
     //Orientation Error
     double dR = GetAngleDifference(
-      poses[0].orientation.x,
-      poses[0].orientation.y,
-      poses[0].orientation.z,
-      poses[0].orientation.w,
+      eePose.orientation.x,
+      eePose.orientation.y,
+      eePose.orientation.z,
+      eePose.orientation.w,
       target.orientation.x,
       target.orientation.y,
       target.orientation.z,
       target.orientation.w);
 
     //Multi-Objective Weight Randomization
-    return 0.5*(dP+dR);
+    diffX = eePose.position.x - basePose.position.x;
+    diffY = eePose.position.y - basePose.position.y;
+    diffZ = eePose.position.z - basePose.position.z;
+    double angularScale = sqrt(ChainLength*sqrt(diffX*diffX + diffY*diffY + diffZ*diffZ)) / M_PI;
+    
+    return 0.5*(dP/angularScale + dR);
   }
 
   bool BIO_IK::initialize(const string &robot_description,
@@ -203,11 +223,13 @@ namespace bio_ik {
       ROS_FATAL("Failed to extract kdl tree from xml robot description");
       return false;
     }
+    cout << "Using chain from " << base_name << " to " << tip_name << "!" << endl;
     if(!tree.getChain(base_name, tip_name, Chain)) {
       ROS_FATAL("Couldn't find chain %s to %s",base_name.c_str(),tip_name.c_str());
       return false;
     }
 
+    SegmentCount = Chain.getNrOfSegments();
     JointCount = Chain.getNrOfJoints();
 
     limitsMin.resize(JointCount);
@@ -215,7 +237,7 @@ namespace bio_ik {
 
     boost::shared_ptr<const urdf::Joint> joint;
     uint jointNum=0;
-    for(unsigned int i=0; i<Chain.segments.size(); ++i) {
+    for(unsigned int i=0; i<SegmentCount; ++i) {
       joint = model.getJoint(Chain.segments[i].getJoint().getName());
       if(joint->type != urdf::Joint::UNKNOWN && joint->type != urdf::Joint::FIXED) {
           jointNum++;
@@ -223,8 +245,9 @@ namespace bio_ik {
           int hasLimits;
           LinkNames.push_back(Chain.segments[i].getName());
           JointNames.push_back(joint->name);
+          ChainLength += Chain.segments[i].getJoint().JointOrigin().Norm();
 
-          if( joint->type != urdf::Joint::CONTINUOUS ) {
+          if(joint->type != urdf::Joint::CONTINUOUS) {
             if(joint->safety) {
               lower = std::max(joint->limits->lower, joint->safety->soft_lower_limit);
               upper = std::min(joint->limits->upper, joint->safety->soft_upper_limit);
@@ -251,10 +274,61 @@ namespace bio_ik {
         }
       }
 
-      EndEffector.push_back(LinkNames[LinkNames.size()-1]);
-      FK_Solver.reset(new KDL::ChainFkSolverPos_recursive(Chain));
+      IndexBase = getKDLSegmentIndex(LinkNames[0]);
+      IndexEE = getKDLSegmentIndex(LinkNames[LinkNames.size()-1]);
 
+      FK_Solver.reset(new KDL::ChainFkSolverPos_recursive(Chain));
+      
       return true;
+  }
+
+  int BIO_IK::getKDLSegmentIndex(const string &name) const {
+    int i=0;
+    while(i < SegmentCount) {
+      if(Chain.getSegment(i).getName() == name) {
+        return i+1;
+      }
+      i++;
+    }
+    return -1;
+  }
+
+  void BIO_IK::getPositionFK_BioIK(const vector<double> &joint_angles,
+                                  geometry_msgs::Pose &eePose,
+                                  geometry_msgs::Pose &basePose) const {
+      KDL::Frame frame;
+      int j=0;
+      for(unsigned int i=0; i<SegmentCount; i++) {
+        if(Chain.getSegment(i).getJoint().getType() != KDL::Joint::None) {
+          frame = frame*Chain.getSegment(i).pose(joint_angles[j]);
+          j++;
+          if(j == IndexBase) {
+            tf::poseKDLToMsg(frame, basePose);
+          }
+        } else {
+          frame = frame*Chain.getSegment(i).pose(0.0);
+        }
+      }
+      tf::poseKDLToMsg(frame, eePose);
+  }
+
+  void BIO_IK::getPositionFK_BioIK(double* &joint_angles,
+                                  geometry_msgs::Pose &eePose,
+                                  geometry_msgs::Pose &basePose) const {
+      KDL::Frame frame;
+      int j=0;
+      for(unsigned int i=0; i<SegmentCount; i++) {
+        if(Chain.getSegment(i).getJoint().getType() != KDL::Joint::None) {
+          frame = frame*Chain.getSegment(i).pose(joint_angles[j]);
+          j++;
+          if(j == IndexBase) {
+            tf::poseKDLToMsg(frame, basePose);
+          }
+        } else {
+          frame = frame*Chain.getSegment(i).pose(0.0);
+        }
+      }
+      tf::poseKDLToMsg(frame, eePose);
   }
 
   bool BIO_IK::getPositionFK(const vector<string> &link_names, 
@@ -273,7 +347,7 @@ namespace bio_ik {
     }
 
     for(unsigned int i=0; i<poses.size(); i++) {
-      if(FK_Solver->JntToCart(joints, frame) >= 0) {
+      if(FK_Solver->JntToCart(joints, frame, getKDLSegmentIndex(link_names[i])) >= 0) {
         tf::poseKDLToMsg(frame, poses[i]);
       } else {
         cout << "Failed to compute FK for joint " << i << endl;
@@ -392,8 +466,8 @@ namespace bio_ik {
 
     solution.resize(JointCount);
 
-    int size = 12;
-    int elites = 4;
+    int size = 15;
+    int elites = 3;
     int dimensionality = JointCount;
     Dimension* dimensions = new Dimension[dimensionality];
     for(int i=0; i<dimensionality; i++) {
@@ -406,7 +480,7 @@ namespace bio_ik {
 
     double accuracy = 0.001;
     int generations = 0;
-    while((double)(clock() - begin_time) / CLOCKS_PER_SEC < 0.02) {
+    while((double)(clock() - begin_time) / CLOCKS_PER_SEC < 0.01) {
       evolution.Evolve();
       generations += 1;
     }
@@ -418,12 +492,11 @@ namespace bio_ik {
 
     if(seedFitness <= solutionFitness) {
       solution = ik_seed_state;
-      //cout << "Accuracy: " << seedFitness << endl;
+        cout << "Generations: " << generations << " Accuracy: " <<  seedFitness << " (" << ((double)(clock() - begin_time) / CLOCKS_PER_SEC) << "s)" << endl;
     } else {
-      //cout << "Accuracy: " << solutionFitness << endl;
+        cout << "Generations: " << generations << " Accuracy: " <<  solutionFitness << " (" << ((double)(clock() - begin_time) / CLOCKS_PER_SEC) << "s)" << endl;
     }
     
-    //cout << "Generations: " << generations << " (" << ((double)(clock() - begin_time) / CLOCKS_PER_SEC) << "s)" << endl;
     return true;
   }
 
