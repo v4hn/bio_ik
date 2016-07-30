@@ -3,8 +3,7 @@
 #include <boost/random/mersenne_twister.hpp>
 #include <boost/random/uniform_real_distribution.hpp>
 
-int seed = time(NULL);
-boost::random::mt19937 rng(seed);
+boost::random::mt19937 rng(time(NULL));
 
 Evolution::Evolution(int size, int elites, int dimensionality, Dimension* &dimensions, FitnessFunction ff) {
 	Size = size;

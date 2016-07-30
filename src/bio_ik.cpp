@@ -25,8 +25,7 @@ using namespace std;
 
 namespace bio_ik {
 
-  int seed = time(NULL);
-  boost::random::mt19937 rng(seed);
+  boost::random::mt19937 rng(time(NULL));
 
   class BIO_IK : public kinematics::KinematicsBase {
     public:
@@ -42,8 +41,6 @@ namespace bio_ik {
       KDL::JntArray limitsMin, limitsMax;
       int JointCount;
       int SegmentCount;
-
-      boost::shared_ptr<KDL::ChainFkSolverPos_recursive> FK_Solver;
 
       const vector<string>& getJointNames() const { return JointNames; }
       const vector<string>& getLinkNames() const { return LinkNames; }
@@ -115,6 +112,8 @@ namespace bio_ik {
 
       int getKDLSegmentIndex(const string &name) const;
 
+      void GetRandomConfiguration(vector<double>& configuration);
+
       double IK_FitnessFunction(double* &input, int &dimensionality, const geometry_msgs::Pose&) const;
       double IK_BalancedFitnessFunction(const vector<double>& input, int &dimensionality, const geometry_msgs::Pose&) const;
     private:
@@ -160,7 +159,7 @@ namespace bio_ik {
     diffX = eePose.position.x - basePose.position.x;
     diffY = eePose.position.y - basePose.position.y;
     diffZ = eePose.position.z - basePose.position.z;
-    double angularScale = (sqrt(ChainLength*sqrt(diffX*diffX + diffY*diffY + diffZ*diffZ)) / M_PI);
+    double angularScale = sqrt(ChainLength*sqrt(diffX*diffX + diffY*diffY + diffZ*diffZ)) / M_PI;
 
     return random*dP/angularScale + (1.0-random)*dR;
   }
@@ -266,7 +265,7 @@ namespace bio_ik {
             limitsMax(jointNum-1)=upper;
           }
           else {
-            limitsMin(jointNum-1)=std::numeric_limits<float>::min(); //lowest
+            limitsMin(jointNum-1)=std::numeric_limits<float>::min();
             limitsMax(jointNum-1)=std::numeric_limits<float>::max();
           }
 
@@ -276,8 +275,6 @@ namespace bio_ik {
 
       IndexBase = getKDLSegmentIndex(LinkNames[0]);
       IndexEE = getKDLSegmentIndex(LinkNames[LinkNames.size()-1]);
-
-      FK_Solver.reset(new KDL::ChainFkSolverPos_recursive(Chain));
       
       return true;
   }
@@ -291,6 +288,14 @@ namespace bio_ik {
       i++;
     }
     return -1;
+  }
+
+  void BIO_IK::GetRandomConfiguration(vector<double>& configuration) {
+    configuration.resize(JointCount);
+    for(int i=0; i<JointCount; i++) {
+      boost::random::uniform_real_distribution<> gen(limitsMin(i), limitsMax(i));
+      configuration[i] = gen(rng);
+    }
   }
 
   void BIO_IK::getPositionFK_BioIK(const vector<double> &joint_angles,
@@ -346,8 +351,9 @@ namespace bio_ik {
       joints(i) = joint_angles[i];
     }
 
+    KDL::ChainFkSolverPos_recursive fk_solver(Chain);
     for(unsigned int i=0; i<poses.size(); i++) {
-      if(FK_Solver->JntToCart(joints, frame, getKDLSegmentIndex(link_names[i])) >= 0) {
+      if(fk_solver.JntToCart(joints, frame, getKDLSegmentIndex(link_names[i])) >= 0) {
         tf::poseKDLToMsg(frame, poses[i]);
       } else {
         cout << "Failed to compute FK for joint " << i << endl;
@@ -466,7 +472,7 @@ namespace bio_ik {
 
     solution.resize(JointCount);
 
-    int size = 15;
+    int size = 12;
     int elites = 3;
     int dimensionality = JointCount;
     Dimension* dimensions = new Dimension[dimensionality];
@@ -478,7 +484,7 @@ namespace bio_ik {
 
     double seedFitness = IK_BalancedFitnessFunction(ik_seed_state, dimensionality, ik_pose);
 
-    double accuracy = 0.001;
+    //double accuracy = 0.001;
     int generations = 0;
     while((double)(clock() - begin_time) / CLOCKS_PER_SEC < 0.01) {
       evolution.Evolve();
@@ -491,10 +497,10 @@ namespace bio_ik {
     double solutionFitness = IK_BalancedFitnessFunction(solution, dimensionality, ik_pose);
 
     if(seedFitness <= solutionFitness) {
-      solution = ik_seed_state;
-        cout << "Generations: " << generations << " Accuracy: " <<  seedFitness << " (" << ((double)(clock() - begin_time) / CLOCKS_PER_SEC) << "s)" << endl;
+        solution = ik_seed_state;
+        //cout << "Generations: " << generations << " Accuracy: " <<  seedFitness << " (" << ((double)(clock() - begin_time) / CLOCKS_PER_SEC) << "s)" << endl;
     } else {
-        cout << "Generations: " << generations << " Accuracy: " <<  solutionFitness << " (" << ((double)(clock() - begin_time) / CLOCKS_PER_SEC) << "s)" << endl;
+        //cout << "Generations: " << generations << " Accuracy: " <<  solutionFitness << " (" << ((double)(clock() - begin_time) / CLOCKS_PER_SEC) << "s)" << endl;
     }
     
     return true;
