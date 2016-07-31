@@ -7,23 +7,23 @@ int main(int argc, char *argv[]) {
   bio_ik::BIO_IK solver;
   solver.initialize("robot_description", "right_arm", "base_link", "r_wrist_roll_link", 0.0);
 
-  geometry_msgs::Pose pose;
-  pose.position.x = 0.638568;
-  pose.position.y = -0.487843;
-  pose.position.z = 0.867719;
-  pose.orientation.x = 0.629086;
-  pose.orientation.y = 0.469335;
-  pose.orientation.z = -0.390434;
-  pose.orientation.w = 0.481183;
+  vector<string> links;
+  links.push_back("r_wrist_roll_link");
+  vector<double> values;
+  solver.GetRandomConfiguration(values);
+  
+  vector<geometry_msgs::Pose> poses;
+  solver.getPositionFK(links, values, poses);
+  geometry_msgs::Pose pose = poses[0];
 
   vector<double> seed;
   seed.resize(solver.JointCount);
-
   vector<double> solution;
-
   moveit_msgs::MoveItErrorCodes err;
 
   solver.getPositionIK(pose, seed, solution, err);
+
+  //122-148 Generations at 0.01s
 
   return 0;
 }

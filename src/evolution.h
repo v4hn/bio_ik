@@ -8,6 +8,12 @@
 #include <boost/bind.hpp>
 #include <boost/function.hpp>
 
+#include <boost/random/mersenne_twister.hpp>
+#include <boost/random/uniform_real_distribution.hpp>
+
+#include <tf_conversions/tf_kdl.h>
+#include <kdl/chain.hpp>
+
 using namespace std;
 
 struct Dimension {
@@ -28,43 +34,50 @@ struct SurvivalOfTheFittest {
     }
 };
 
-typedef boost::function<double(double* input, int dimensionality)> FitnessFunction;
-
 class Evolution {
 public:
-	Evolution(int size, int elites, int dimensionality, Dimension* &dimensions, FitnessFunction ff);
-	Evolution(int size, int elites, int dimensionality, Dimension* &dimensions, FitnessFunction ff, vector<double> bias);
+	Evolution(int populationSize, int elites, int dimensionality, Dimension* dimensions, const vector<double> &seed, const geometry_msgs::Pose &target, const KDL::Chain &chain, const double &chainLength, const int &jointCount, const int &segmentCount, const int &indexBase);
 	~Evolution();
-
-	bool Initialized;
 
 	Individual &GetPrototype();
 	Individual* &GetPopulation();
 	void Evolve();
+	void Terminate();
 
-	void UpdateFitnessFunction(FitnessFunction ff);
-
-	int GetSize();
+	int GetPopulationSize();
 	int GetDimensionality();
+	double GetEvolutionFitness();
 
 private:
-	Individual Prototype;
+	geometry_msgs::Pose Target;
+	KDL::Chain Chain;
+	double ChainLength;
+	int JointCount;
+	int SegmentCount;
+	int IndexBase;
 
-	int Size;
+	double EvolutionFitness;
+
+	int PopulationSize;
 	int Elites;
-	Dimension* Dimensions;
+	const Dimension* Dimensions;
 	int Dimensionality;
-	FitnessFunction FF;
 
+	Individual Prototype;
 	Individual* Population;
 	Individual* Offspring;
 
 	Individual &Select(vector<Individual*> &pool);
 	
-	void Survive(int index);
-	void Reproduce(int index, Individual &parentA, Individual &parentB);
-	void Reroll(int index);
-	
+	void Survive(int &index);
+	void Reproduce(int &index, Individual &parentA, Individual &parentB);
+	void Reroll(int &index);
+
+	double ComputeFitness(double* &genes);
+	double ComputeBalancedFitness(double* &genes);
+	void ComputeFK(double* &values, geometry_msgs::Pose &basePose, geometry_msgs::Pose &eePose);
+	void ComputeFK(vector<double> &values, geometry_msgs::Pose &basePose, geometry_msgs::Pose &eePose);
+
 	void Clip(Individual &individual);
 	double Clip(double value, const Dimension &dimension);
 	void ComputeExtinctions();
@@ -72,10 +85,11 @@ private:
 	void UpdatePrototype(Individual &candidate);
 	void SortByFitness();
 	double GetMutationProbability(Individual &parentA, Individual &parentB);
-	double GetMutationStrength(Individual &parentA, Individual &parentB, Dimension &dimension);
+	double GetMutationStrength(Individual &parentA, Individual &parentB, const Dimension &dimension);
 
 	double GetRandomValue(double min, double max);
 	int GetRandomWeightedIndex(double* &probabilities, int size);
+	double GetAngleDifference(double& q1x, double& q1y, double& q1z, double& q1w, double q2x, double q2y, double q2z, double q2w);
 };
  
 #endif
