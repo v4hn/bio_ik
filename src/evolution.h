@@ -36,7 +36,7 @@ struct SurvivalOfTheFittest {
 
 class Evolution {
 public:
-	Evolution(int populationSize, int elites, int dimensionality, Dimension* dimensions, const vector<double> &seed, const geometry_msgs::Pose &target, const KDL::Chain &chain, const double &chainLength, const int &jointCount, const int &segmentCount, const int &indexBase);
+	Evolution(int populationSize, int elites, int dimensionality, Dimension* dimensions, const vector<double> &seed, const geometry_msgs::Pose &target, const KDL::Chain &chain, const double &chainLength, const int &jointCount, const int &segmentCount);
 	~Evolution();
 
 	Individual &GetPrototype();
@@ -54,7 +54,8 @@ private:
 	double ChainLength;
 	int JointCount;
 	int SegmentCount;
-	int IndexBase;
+	
+	geometry_msgs::Pose BasePose, EEPose;
 
 	double EvolutionFitness;
 
@@ -75,8 +76,11 @@ private:
 
 	double ComputeFitness(double* &genes);
 	double ComputeBalancedFitness(double* &genes);
-	void ComputeFK(double* &values, geometry_msgs::Pose &basePose, geometry_msgs::Pose &eePose);
-	void ComputeFK(vector<double> &values, geometry_msgs::Pose &basePose, geometry_msgs::Pose &eePose);
+	void ComputeFK(double* &values);
+
+	//Fast Exploitation
+	double ComputeFitness(KDL::Frame &frame);
+	//
 
 	void Clip(Individual &individual);
 	double Clip(double value, const Dimension &dimension);

@@ -1,14 +1,14 @@
 #include "evolution.h"
 
-boost::random::mt19937 rng(time(NULL));
+boost::random::mt19937 RNG(time(NULL));
+boost::random::uniform_real_distribution<> ZeroOneUniform(0.0, 1.0);
 
-Evolution::Evolution(int populationSize, int elites, int dimensionality, Dimension* dimensions, const vector<double> &seed, const geometry_msgs::Pose &target, const KDL::Chain &chain, const double &chainLength, const int &jointCount, const int &segmentCount, const int &indexBase) {
+Evolution::Evolution(int populationSize, int elites, int dimensionality, Dimension* dimensions, const vector<double> &seed, const geometry_msgs::Pose &target, const KDL::Chain &chain, const double &chainLength, const int &jointCount, const int &segmentCount) {
 	Target = target;
 	Chain = chain;
 	ChainLength = chainLength;
 	JointCount = jointCount;
 	SegmentCount = segmentCount;
-	IndexBase = indexBase;
 
 	PopulationSize = populationSize;
 	Elites = elites;
@@ -54,6 +54,8 @@ Evolution::Evolution(int populationSize, int elites, int dimensionality, Dimensi
 		Prototype.Extinction = Population[0].Extinction;
 		Prototype.Fitness = Population[0].Fitness;
 	}
+
+	tf::poseKDLToMsg(Chain.getSegment(0).pose(0.0), BasePose);
 
 	EvolutionFitness = ComputeBalancedFitness(Prototype.Genes);
 }
@@ -158,6 +160,8 @@ void Evolution::Survive(int &index) {
 		offspring.Gradient[i] = survivor.Gradient[i];
 	}
 
+	//Perform Exploitation (Slow)
+	/*
 	double fitnessSum = 0.0;
 	for(int i=0; i<Dimensionality; i++) {
 		double fitness = ComputeFitness(offspring.Genes);
@@ -185,8 +189,71 @@ void Evolution::Survive(int &index) {
 
 		fitnessSum += fitness;
 	}
-
 	offspring.Fitness = fitnessSum/(double)Dimensionality;
+	*/
+	
+	//Perform Exploitation (Fast)
+	double fitnessSum = 0.0;
+	
+	KDL::Frame current, rest, result;
+	KDL::Frame defFrame, incFrame, decFrame;
+	int dimension;
+
+	dimension = 0;
+	for(int i=0; i<SegmentCount; i++) {
+		if(Chain.getSegment(i).getJoint().getType() != KDL::Joint::None) {
+			rest = rest*Chain.getSegment(i).pose(offspring.Genes[dimension]);
+			dimension += 1;
+		} else {
+			rest = rest*Chain.getSegment(i).pose(0.0);
+		}
+	}
+	
+	dimension = 0;
+	for(int i=0; i<SegmentCount; i++) {
+		if(Chain.getSegment(i).getJoint().getType() != KDL::Joint::None) {
+			result = current*rest;
+			double fitness = ComputeFitness(result);
+
+			defFrame = Chain.getSegment(i).pose(offspring.Genes[dimension]);
+			rest = defFrame.Inverse()*rest;
+
+			double inc = Clip(offspring.Genes[dimension] + GetRandomValue(0.0, fitness), Dimensions[dimension]) - offspring.Genes[dimension];
+			incFrame = Chain.getSegment(i).pose(offspring.Genes[dimension]+inc);
+			result = current*incFrame*rest;
+			double incFitness = ComputeFitness(result);
+
+			double dec = Clip(offspring.Genes[dimension] - GetRandomValue(0.0, fitness), Dimensions[dimension]) - offspring.Genes[dimension];
+			decFrame = Chain.getSegment(i).pose(offspring.Genes[dimension]+dec);
+			result = current*decFrame*rest;
+			double decFitness = ComputeFitness(result);
+
+			if(incFitness >= fitness && decFitness >= fitness) {
+				current = current*defFrame;
+			} else {
+				if(incFitness < decFitness) {
+					offspring.Genes[dimension] += inc;
+					offspring.Gradient[dimension] += inc;
+					fitness = incFitness;
+					current = current*incFrame;
+				} else {
+					offspring.Genes[dimension] += dec;
+					offspring.Gradient[dimension] += dec;
+					fitness = decFitness;
+					current = current*decFrame;
+				}
+			}
+
+			fitnessSum += fitness;
+
+			dimension += 1;
+		} else {
+			result = Chain.getSegment(i).pose(0.0);
+			rest = result.Inverse()*rest;
+			current = current*result;
+		}
+		offspring.Fitness = fitnessSum/(double)Dimensionality;
+	}
 }
 
 void Evolution::Reproduce(int &index, Individual &parentA, Individual &parentB) {
@@ -194,8 +261,8 @@ void Evolution::Reproduce(int &index, Individual &parentA, Individual &parentB) 
 
 	//Recombination
 	for(int i=0; i<Dimensionality; i++) {
-		float weight = GetRandomValue(0.0, 1.0);
-		offspring.Genes[i] = weight*(parentA.Genes[i]) + (1.0-weight)*(parentB.Genes[i]) + GetRandomValue(-1.0, 1.0)*parentA.Gradient[i] + GetRandomValue(-1.0, 1.0)*parentB.Gradient[i];
+		float weight = ZeroOneUniform(RNG);
+		offspring.Genes[i] = weight*parentA.Genes[i] + (1.0-weight)*parentB.Genes[i] + GetRandomValue(-1.0, 1.0)*parentA.Gradient[i] + GetRandomValue(-1.0, 1.0)*parentB.Gradient[i];
 	}
 
 	double genesTmp[Dimensionality];
@@ -205,17 +272,17 @@ void Evolution::Reproduce(int &index, Individual &parentA, Individual &parentB) 
 
 	//Mutation
 	for(int i=0; i<Dimensionality; i++) {
-		if(GetRandomValue(0.0, 1.0) < GetMutationProbability(parentA, parentB)) {
+		if(ZeroOneUniform(RNG) < GetMutationProbability(parentA, parentB)) {
 			offspring.Genes[i] += GetRandomValue(-1.0, 1.0) * GetMutationStrength(parentA, parentB, Dimensions[i]);
 		}
 	}
 
 	//Adoption
 	for(int i=0; i<Dimensionality; i++) {
-		float weight = GetRandomValue(0.0, 1.0);
+		float weight = ZeroOneUniform(RNG);
 		offspring.Genes[i] += 
-			weight * GetRandomValue(0.0, 1.0) * 0.5f * (parentA.Genes[i] - offspring.Genes[i] + parentB.Genes[i] - offspring.Genes[i])
-			+ (1.0-weight) * GetRandomValue(0.0, 1.0) * (Population[0].Genes[i] - offspring.Genes[i]);
+			weight * ZeroOneUniform(RNG) * 0.5f * (parentA.Genes[i] - offspring.Genes[i] + parentB.Genes[i] - offspring.Genes[i])
+			+ (1.0-weight) * ZeroOneUniform(RNG) * (Population[0].Genes[i] - offspring.Genes[i]);
 	}
 
 	//Clip and Compute Evolutionary Gradient which is the change within Mutation and Adoption
@@ -240,101 +307,107 @@ void Evolution::Reroll(int &index) {
 }
 
 double Evolution::ComputeFitness(double* &genes) {
-	geometry_msgs::Pose basePose, eePose;
-	ComputeFK(genes, basePose, eePose);
+	ComputeFK(genes);
 	
     //Position Error
-    double diffX = eePose.position.x - Target.position.x;
-    double diffY = eePose.position.y - Target.position.y;
-    double diffZ = eePose.position.z - Target.position.z;
+    double diffX = EEPose.position.x - Target.position.x;
+    double diffY = EEPose.position.y - Target.position.y;
+    double diffZ = EEPose.position.z - Target.position.z;
     double dP = sqrt(diffX*diffX + diffY*diffY + diffZ*diffZ);
     
     //Orientation Error
     double dR = GetAngleDifference(
-      eePose.orientation.x,
-      eePose.orientation.y,
-      eePose.orientation.z,
-      eePose.orientation.w,
+      EEPose.orientation.x,
+      EEPose.orientation.y,
+      EEPose.orientation.z,
+      EEPose.orientation.w,
       Target.orientation.x,
       Target.orientation.y,
       Target.orientation.z,
       Target.orientation.w);
 
     //Multi-Objective Weight Randomization
-    boost::random::uniform_real_distribution<> gen(0.0, 1.0);
-    double random = gen(rng);
+	double random = ZeroOneUniform(RNG);
 	
-    diffX = eePose.position.x - basePose.position.x;
-    diffY = eePose.position.y - basePose.position.y;
-    diffZ = eePose.position.z - basePose.position.z;
+    diffX = EEPose.position.x - BasePose.position.x;
+    diffY = EEPose.position.y - BasePose.position.y;
+    diffZ = EEPose.position.z - BasePose.position.z;
     double angularScale = sqrt(ChainLength*sqrt(diffX*diffX + diffY*diffY + diffZ*diffZ)) / M_PI;
 
     return random*dP/angularScale + (1.0-random)*dR;
 }
 
 double Evolution::ComputeBalancedFitness(double* &genes) {
-	geometry_msgs::Pose basePose, eePose;
-	ComputeFK(genes, basePose, eePose);
+	ComputeFK(genes);
 	
     //Position Error
-    double diffX = eePose.position.x - Target.position.x;
-    double diffY = eePose.position.y - Target.position.y;
-    double diffZ = eePose.position.z - Target.position.z;
+    double diffX = EEPose.position.x - Target.position.x;
+    double diffY = EEPose.position.y - Target.position.y;
+    double diffZ = EEPose.position.z - Target.position.z;
     double dP = sqrt(diffX*diffX + diffY*diffY + diffZ*diffZ);
     
     //Orientation Error
     double dR = GetAngleDifference(
-      eePose.orientation.x,
-      eePose.orientation.y,
-      eePose.orientation.z,
-      eePose.orientation.w,
+      EEPose.orientation.x,
+      EEPose.orientation.y,
+      EEPose.orientation.z,
+      EEPose.orientation.w,
+      Target.orientation.x,
+      Target.orientation.y,
+      Target.orientation.z,
+      Target.orientation.w);
+	
+    diffX = EEPose.position.x - BasePose.position.x;
+    diffY = EEPose.position.y - BasePose.position.y;
+    diffZ = EEPose.position.z - BasePose.position.z;
+    double angularScale = sqrt(ChainLength*sqrt(diffX*diffX + diffY*diffY + diffZ*diffZ)) / M_PI;
+
+    return 0.5*(dP/angularScale + dR);
+}
+
+double Evolution::ComputeFitness(KDL::Frame &frame) {
+	tf::poseKDLToMsg(frame, EEPose);
+	
+    //Position Error
+    double diffX = EEPose.position.x - Target.position.x;
+    double diffY = EEPose.position.y - Target.position.y;
+    double diffZ = EEPose.position.z - Target.position.z;
+    double dP = sqrt(diffX*diffX + diffY*diffY + diffZ*diffZ);
+    
+    //Orientation Error
+    double dR = GetAngleDifference(
+      EEPose.orientation.x,
+      EEPose.orientation.y,
+      EEPose.orientation.z,
+      EEPose.orientation.w,
       Target.orientation.x,
       Target.orientation.y,
       Target.orientation.z,
       Target.orientation.w);
 
     //Multi-Objective Weight Randomization
+	double random = ZeroOneUniform(RNG);
 	
-    diffX = eePose.position.x - basePose.position.x;
-    diffY = eePose.position.y - basePose.position.y;
-    diffZ = eePose.position.z - basePose.position.z;
+    diffX = EEPose.position.x - BasePose.position.x;
+    diffY = EEPose.position.y - BasePose.position.y;
+    diffZ = EEPose.position.z - BasePose.position.z;
     double angularScale = sqrt(ChainLength*sqrt(diffX*diffX + diffY*diffY + diffZ*diffZ)) / M_PI;
 
-    return 0.5*(dP/angularScale + dR);
+    return random*dP/angularScale + (1.0-random)*dR;
 }
 
-void Evolution::ComputeFK(double* &values, geometry_msgs::Pose &basePose, geometry_msgs::Pose &eePose) {
+void Evolution::ComputeFK(double* &values) {
 	KDL::Frame frame;
 	int j=0;
     for(unsigned int i=0; i<SegmentCount; i++) {
 		if(Chain.getSegment(i).getJoint().getType() != KDL::Joint::None) {
 			frame = frame*Chain.getSegment(i).pose(values[j]);
 			j++;
-			if(j == IndexBase) {
-				tf::poseKDLToMsg(frame, basePose);
-			}
 		} else {
           frame = frame*Chain.getSegment(i).pose(0.0);
         }
 	}
-	tf::poseKDLToMsg(frame, eePose);
-}
-
-void Evolution::ComputeFK(vector<double> &values, geometry_msgs::Pose &eePose, geometry_msgs::Pose &basePose) {
-	KDL::Frame frame;
-	int j=0;
-    for(unsigned int i=0; i<SegmentCount; i++) {
-		if(Chain.getSegment(i).getJoint().getType() != KDL::Joint::None) {
-			frame = frame*Chain.getSegment(i).pose(values[j]);
-			j++;
-			if(j == IndexBase) {
-				tf::poseKDLToMsg(frame, basePose);
-			}
-		} else {
-          frame = frame*Chain.getSegment(i).pose(0.0);
-        }
-	}
-	tf::poseKDLToMsg(frame, eePose);
+	tf::poseKDLToMsg(frame, EEPose);
 }
 
 Individual* &Evolution::GetPopulation() {
@@ -435,7 +508,7 @@ double Evolution::GetRandomValue(double min, double max) {
 		return min;
 	}
 	boost::random::uniform_real_distribution<> gen(min, max);
-	return gen(rng);
+	return gen(RNG);
 }
 
 int Evolution::GetRandomWeightedIndex(double* &probabilities, int size) {
@@ -443,7 +516,7 @@ int Evolution::GetRandomWeightedIndex(double* &probabilities, int size) {
 	for(int i=0; i<size; i++) {
 		weightSum += probabilities[i];
 	}
-	double rVal = GetRandomValue(0.0, 1.0)*weightSum;
+	double rVal = ZeroOneUniform(RNG)*weightSum;
 	for(int i=0; i<size; i++) {
 		rVal -= probabilities[i];
 		if(rVal <= 0.0) {

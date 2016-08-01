@@ -33,12 +33,11 @@ namespace bio_ik {
       ~BIO_IK() {}
 
       vector<string> JointNames, LinkNames;
+
       int JointCount, SegmentCount;
       int IndexBase, IndexEE;
-
       KDL::Chain Chain;
       double ChainLength;
-      
       Dimension* Dimensions;
 
       const vector<string>& getJointNames() const { return JointNames; }
@@ -151,45 +150,36 @@ namespace bio_ik {
     uint jointNum=0;
     for(unsigned int i=0; i<SegmentCount; ++i) {
       joint = model.getJoint(Chain.segments[i].getJoint().getName());
+      
       if(joint->type != urdf::Joint::UNKNOWN && joint->type != urdf::Joint::FIXED) {
           jointNum++;
-          float lower, upper;
-          int hasLimits;
+
           LinkNames.push_back(Chain.segments[i].getName());
           JointNames.push_back(joint->name);
+
           ChainLength += Chain.segments[i].getJoint().JointOrigin().Norm();
 
           if(joint->type != urdf::Joint::CONTINUOUS) {
             if(joint->safety) {
-              lower = std::max(joint->limits->lower, joint->safety->soft_lower_limit);
-              upper = std::min(joint->limits->upper, joint->safety->soft_upper_limit);
+              Dimensions[jointNum-1].Min = max(joint->limits->lower, joint->safety->soft_lower_limit);
+              Dimensions[jointNum-1].Max = min(joint->limits->upper, joint->safety->soft_upper_limit);
             } else {
-              lower = joint->limits->lower;
-              upper = joint->limits->upper;
+              Dimensions[jointNum-1].Min = joint->limits->lower;
+              Dimensions[jointNum-1].Max = joint->limits->upper;
             }
-            hasLimits = 1;
-          }
-          else {
-            hasLimits = 0;
-          }
-
-          if(hasLimits) {
-            Dimensions[jointNum-1].Min = lower;
-            Dimensions[jointNum-1].Max = upper;
-          }
-          else {
+          } else {
             Dimensions[jointNum-1].Min = numeric_limits<float>::min();
             Dimensions[jointNum-1].Max = numeric_limits<float>::max();
           }
 
           ROS_INFO_STREAM("IK Using joint "<<Chain.segments[i].getName()<<" "<<Dimensions[jointNum-1].Min<<" "<<Dimensions[jointNum-1].Max);
-        }
       }
+    }
 
-      IndexBase = getKDLSegmentIndex(LinkNames[0]);
-      IndexEE = getKDLSegmentIndex(LinkNames[LinkNames.size()-1]);
+    IndexBase = getKDLSegmentIndex(LinkNames[0]);
+    IndexEE = getKDLSegmentIndex(LinkNames[LinkNames.size()-1]);
       
-      return true;
+    return true;
   }
 
   int BIO_IK::getKDLSegmentIndex(const string &name) const {
@@ -342,11 +332,11 @@ namespace bio_ik {
 
     ROS_DEBUG_STREAM_NAMED("bio_ik","getPositionIK");
 
-    Evolution evolution(12, 3, JointCount, Dimensions, ik_seed_state, ik_pose, Chain, ChainLength, JointCount, SegmentCount, IndexBase);
+    Evolution evolution(12, 3, JointCount, Dimensions, ik_seed_state, ik_pose, Chain, ChainLength, JointCount, SegmentCount);
     
     //double accuracy = 0.001;
     int generations = 0;
-    while((double)(clock() - begin_time) / CLOCKS_PER_SEC < 0.01) {
+    while((double)(clock() - begin_time) / CLOCKS_PER_SEC < 0.005) {
       evolution.Evolve();
       generations += 1;
     }
