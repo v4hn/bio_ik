@@ -6,6 +6,7 @@ find_package(catkin REQUIRED COMPONENTS
     moveit_core
     pluginlib
     tf_conversions
+    kdl_parser
 )
 
 catkin_package(
@@ -21,6 +22,10 @@ include_directories(${catkin_INCLUDE_DIRS})
 add_library(bio_ik
     src/bio_ik.cpp
     src/evolution.cpp
+)
+
+target_link_libraries(bio_ik
+    ${catkin_LIBRARIES}
 )
 
 add_executable(bio_ik_test

@@ -326,7 +326,7 @@ void Evolution::Reproduce(int &index, Individual &parentA, Individual &parentB) 
 			+ (1.0-weight) * ZeroOneUniform(RNG) * (Population[0].Genes[i] - offspring.Genes[i]);
 
 		//Clip
-		Clip(offspring.Genes[i], Dimensions[i]);
+		offspring.Genes[i] = Clip(offspring.Genes[i], Dimensions[i]);
 		offspring.Gradient[i] = offspring.Genes[i] - genesTmp[i];
 	}
 

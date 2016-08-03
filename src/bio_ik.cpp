@@ -98,7 +98,9 @@ namespace bio_ik {
                                 const vector<double> &ik_seed_state,
                                 vector<double> &solution,
                                 double &solutionFitness,
-                                double &computationTime);
+                                double &computationTime,
+                                double fitness,
+                                double time);
 
       bool initialize(const string &robot_description,
                       const string& group_name,
@@ -151,6 +153,7 @@ namespace bio_ik {
     SegmentCount = Chain.getNrOfSegments();
     JointCount = Chain.getNrOfJoints();
     Dimensions = new Dimension[JointCount];
+    ChainLength = 0.0;
 
     boost::shared_ptr<const urdf::Joint> joint;
     uint jointNum=0;
@@ -184,7 +187,15 @@ namespace bio_ik {
 
     IndexBase = getKDLSegmentIndex(LinkNames[0]);
     IndexEE = getKDLSegmentIndex(LinkNames[LinkNames.size()-1]);
-      
+    
+    cout << "JointCount: " << JointCount << endl;
+    cout << "SegmentCount: " << SegmentCount << endl;
+    cout << "JointNames: " << JointNames.size() << endl;
+    cout << "LinkNames: " << LinkNames.size() << endl;
+    cout << "IndexBase: " << IndexBase << endl;
+    cout << "IndexEE: " << IndexEE << endl;
+    cout << "ChainLength: " << ChainLength << endl;
+
     return true;
   }
 
@@ -372,39 +383,33 @@ namespace bio_ik {
                                 const vector<double> &ik_seed_state,
                                 vector<double> &solution,
                                 double &solutionFitness,
-                                double &computationTime) {
+                                double &computationTime,
+                                double fitness,
+                                double time) {
     const clock_t begin_time = clock();
 
     ROS_DEBUG_STREAM_NAMED("bio_ik","getPositionIK");
 
     Evolution evolution(14, 4, JointCount, Dimensions, ik_seed_state, ik_pose, Chain, ChainLength);
 
-    double fitness = 0.001;
-    double time = 0.01;
-
     int generations = 0;
     while((double)(clock() - begin_time) / CLOCKS_PER_SEC < time) {
       evolution.Evolve();
       generations += 1;
-     // if(evolution.GetSolutionFitness() < fitness) {
-        //cout << "Stopped" << endl;
-     //   break;
-      //}
+      if(evolution.GetSolutionFitness() < fitness) {
+        break;
+      }
     }
 
     solution.resize(JointCount);
-    if(evolution.GetSolutionFitness() < fitness) {
-      for(int i=0; i<JointCount; i++) {
-        solution[i] = evolution.GetSolution()[i];
-      }
-    } else {
-      solution = ik_seed_state;
-    }    
+    for(int i=0; i<JointCount; i++) {
+      solution[i] = evolution.GetSolution()[i];
+    }
 
     solutionFitness = evolution.GetSolutionFitness();
     computationTime = (double)(clock() - begin_time) / CLOCKS_PER_SEC;
     
-    cout << "Generations: " << generations << " Solution Fitness: " <<  evolution.GetSolutionFitness() << " (" << ((double)(clock() - begin_time) / CLOCKS_PER_SEC) << "s)" << endl;
+    //cout << "Generations: " << generations << " Solution Fitness: " <<  evolution.GetSolutionFitness() << " (" << ((double)(clock() - begin_time) / CLOCKS_PER_SEC) << "s)" << endl;
 
     if(evolution.GetSolutionFitness() <= fitness) {
       return true; 
