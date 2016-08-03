@@ -94,6 +94,12 @@ namespace bio_ik {
                             const vector<double> &consistency_limits,
                             const kinematics::KinematicsQueryOptions &options) const;
 
+      bool myPositionIK(const geometry_msgs::Pose &ik_pose,
+                                const vector<double> &ik_seed_state,
+                                vector<double> &solution,
+                                double &solutionFitness,
+                                double &computationTime);
+
       bool initialize(const string &robot_description,
                       const string& group_name,
                       const string& base_name,
@@ -168,8 +174,8 @@ namespace bio_ik {
               Dimensions[jointNum-1].Max = joint->limits->upper;
             }
           } else {
-            Dimensions[jointNum-1].Min = numeric_limits<float>::min();
-            Dimensions[jointNum-1].Max = numeric_limits<float>::max();
+            Dimensions[jointNum-1].Min = -M_PI; //numeric_limits<float>::min();
+            Dimensions[jointNum-1].Max = M_PI; //numeric_limits<float>::max();
           }
 
           ROS_INFO_STREAM("IK Using joint "<<Chain.segments[i].getName()<<" "<<Dimensions[jointNum-1].Min<<" "<<Dimensions[jointNum-1].Max);
@@ -332,23 +338,80 @@ namespace bio_ik {
 
     ROS_DEBUG_STREAM_NAMED("bio_ik","getPositionIK");
 
-    Evolution evolution(12, 3, JointCount, Dimensions, ik_seed_state, ik_pose, Chain, ChainLength, JointCount, SegmentCount);
-    
-    //double accuracy = 0.001;
+    Evolution evolution(12, 4, JointCount, Dimensions, ik_seed_state, ik_pose, Chain, ChainLength);
+
+    double fitness = 0.001;
+    double time = 0.01;
+
     int generations = 0;
-    while((double)(clock() - begin_time) / CLOCKS_PER_SEC < 0.01) {
+    while((double)(clock() - begin_time) / CLOCKS_PER_SEC < time) {
       evolution.Evolve();
       generations += 1;
+      if(evolution.GetSolutionFitness() < fitness) {
+        break;
+      }
     }
 
     solution.resize(JointCount);
     for(int i=0; i<JointCount; i++) {
-      solution[i] = evolution.GetPrototype().Genes[i];
+      solution[i] = evolution.GetSolution()[i];
     }
 
-    cout << "Generations: " << generations << " Evolution Fitness: " <<  evolution.GetEvolutionFitness() << " (" << ((double)(clock() - begin_time) / CLOCKS_PER_SEC) << "s)" << endl;
-    
+    //cout << "Generations: " << generations << " Solution Fitness: " <<  evolution.GetSolutionFitness() << " (" << ((double)(clock() - begin_time) / CLOCKS_PER_SEC) << "s)" << endl;
     return true;
+
+    if(evolution.GetSolutionFitness() <= fitness) {
+      return true; 
+    } else {
+      return false;
+    }
+    
+  }
+
+  bool BIO_IK::myPositionIK(const geometry_msgs::Pose &ik_pose,
+                                const vector<double> &ik_seed_state,
+                                vector<double> &solution,
+                                double &solutionFitness,
+                                double &computationTime) {
+    const clock_t begin_time = clock();
+
+    ROS_DEBUG_STREAM_NAMED("bio_ik","getPositionIK");
+
+    Evolution evolution(14, 4, JointCount, Dimensions, ik_seed_state, ik_pose, Chain, ChainLength);
+
+    double fitness = 0.001;
+    double time = 0.01;
+
+    int generations = 0;
+    while((double)(clock() - begin_time) / CLOCKS_PER_SEC < time) {
+      evolution.Evolve();
+      generations += 1;
+     // if(evolution.GetSolutionFitness() < fitness) {
+        //cout << "Stopped" << endl;
+     //   break;
+      //}
+    }
+
+    solution.resize(JointCount);
+    if(evolution.GetSolutionFitness() < fitness) {
+      for(int i=0; i<JointCount; i++) {
+        solution[i] = evolution.GetSolution()[i];
+      }
+    } else {
+      solution = ik_seed_state;
+    }    
+
+    solutionFitness = evolution.GetSolutionFitness();
+    computationTime = (double)(clock() - begin_time) / CLOCKS_PER_SEC;
+    
+    cout << "Generations: " << generations << " Solution Fitness: " <<  evolution.GetSolutionFitness() << " (" << ((double)(clock() - begin_time) / CLOCKS_PER_SEC) << "s)" << endl;
+
+    if(evolution.GetSolutionFitness() <= fitness) {
+      return true; 
+    } else {
+      return false;
+    }
+    
   }
 
 }

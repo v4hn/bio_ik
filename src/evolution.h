@@ -36,17 +36,17 @@ struct SurvivalOfTheFittest {
 
 class Evolution {
 public:
-	Evolution(int populationSize, int elites, int dimensionality, Dimension* dimensions, const vector<double> &seed, const geometry_msgs::Pose &target, const KDL::Chain &chain, const double &chainLength, const int &jointCount, const int &segmentCount);
+	Evolution(int populationSize, int elites, int dimensionality, Dimension* dimensions, const vector<double> &seed, const geometry_msgs::Pose &target, const KDL::Chain &chain, const double &chainLength);
 	~Evolution();
 
-	Individual &GetPrototype();
+	double* &GetSolution();
 	Individual* &GetPopulation();
 	void Evolve();
 	void Terminate();
 
 	int GetPopulationSize();
 	int GetDimensionality();
-	double GetEvolutionFitness();
+	double GetSolutionFitness();
 
 private:
 	geometry_msgs::Pose Target;
@@ -57,16 +57,20 @@ private:
 	
 	geometry_msgs::Pose BasePose, EEPose;
 
-	double EvolutionFitness;
+	vector<double> Seed;
 
 	int PopulationSize;
 	int Elites;
 	const Dimension* Dimensions;
 	int Dimensionality;
 
-	Individual Prototype;
+	double* Solution;
+	double SolutionFitness;
+
 	Individual* Population;
 	Individual* Offspring;
+
+	void Initialize();
 
 	Individual &Select(vector<Individual*> &pool);
 	
@@ -75,25 +79,24 @@ private:
 	void Reroll(int &index);
 
 	double ComputeFitness(double* &genes);
+	double ComputeFitness(KDL::Frame &frame);
 	double ComputeBalancedFitness(double* &genes);
+	double ComputeBalancedFitness(KDL::Frame &frame);
+	double GetPoseFitness(double balance);
 	void ComputeFK(double* &values);
 
-	//Fast Exploitation
-	double ComputeFitness(KDL::Frame &frame);
-	//
-
-	void Clip(Individual &individual);
+	//void Clip(Individual &individual);
 	double Clip(double value, const Dimension &dimension);
 	void ComputeExtinctions();
 	bool CheckWipeout();
-	void UpdatePrototype(Individual &candidate);
+	bool UpdateSolution(Individual &candidate);
 	void SortByFitness();
 	double GetMutationProbability(Individual &parentA, Individual &parentB);
 	double GetMutationStrength(Individual &parentA, Individual &parentB, const Dimension &dimension);
 
 	double GetRandomValue(double min, double max);
 	int GetRandomWeightedIndex(double* &probabilities, int size);
-	double GetAngleDifference(double& q1x, double& q1y, double& q1z, double& q1w, double q2x, double q2y, double q2z, double q2w);
+	double GetAngleDifference(double& q1x, double& q1y, double& q1z, double& q1w, double& q2x, double& q2y, double& q2z, double& q2w);
 };
  
 #endif

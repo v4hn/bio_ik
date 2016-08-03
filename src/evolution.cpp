@@ -3,61 +3,46 @@
 boost::random::mt19937 RNG(time(NULL));
 boost::random::uniform_real_distribution<> ZeroOneUniform(0.0, 1.0);
 
-Evolution::Evolution(int populationSize, int elites, int dimensionality, Dimension* dimensions, const vector<double> &seed, const geometry_msgs::Pose &target, const KDL::Chain &chain, const double &chainLength, const int &jointCount, const int &segmentCount) {
+Evolution::Evolution(int populationSize, int elites, int dimensionality, Dimension* dimensions, const vector<double> &seed, const geometry_msgs::Pose &target, const KDL::Chain &chain, const double &chainLength) {
+	//Assign Variables
 	Target = target;
 	Chain = chain;
 	ChainLength = chainLength;
-	JointCount = jointCount;
-	SegmentCount = segmentCount;
+	JointCount = chain.getNrOfJoints();
+	SegmentCount = chain.getNrOfSegments();
 
 	PopulationSize = populationSize;
 	Elites = elites;
 	Dimensionality = dimensionality;
 	Dimensions = dimensions;
 
+	tf::poseKDLToMsg(Chain.getSegment(0).pose(0.0), BasePose);
+
+	Seed = seed;
+
+	//Allocate Memory
 	Population = new Individual[PopulationSize];
+	Offspring = new Individual[PopulationSize];
 	Population[0].Genes = new double[Dimensionality];
 	Population[0].Gradient = new double[Dimensionality];
-	for(int i=0; i<Dimensionality; i++) {
-		Population[0].Genes[i] = seed[i];
-		Population[0].Gradient[i] = 0.0;
-	}
-	Population[0].Fitness = ComputeFitness(Population[0].Genes);
 	for(int i=1; i<PopulationSize; i++) {
 		Population[i].Genes = new double[Dimensionality];
 		Population[i].Gradient = new double[Dimensionality];
-		for(int j=0; j<Dimensionality; j++) {
-			Population[i].Genes[j] = GetRandomValue(Dimensions[j].Min, Dimensions[j].Max);
-			Population[i].Gradient[j] = 0.0;
-		}
-		Population[i].Fitness = ComputeFitness(Population[i].Genes);
 	}
-
-	Offspring = new Individual[PopulationSize];
 	for(int i=0; i<PopulationSize; i++) {
 		Offspring[i].Genes = new double[Dimensionality];
 		Offspring[i].Gradient = new double[Dimensionality];
-		for(int j=0; j<Dimensionality; j++) {
-			Offspring[i].Genes[j] = 0.0;
-			Offspring[i].Gradient[j] = 0.0;
-		}
 	}
-	
-	SortByFitness();
-	ComputeExtinctions();
+	Solution = new double[Dimensionality];
 
-	Prototype.Genes = new double[Dimensionality];
-	Prototype.Gradient = new double[Dimensionality];
+	//Initialize Solution
 	for(int i=0; i<Dimensionality; i++) {
-		Prototype.Genes[i] = Population[0].Genes[i];
-		Prototype.Gradient[i] = Population[0].Genes[i];
-		Prototype.Extinction = Population[0].Extinction;
-		Prototype.Fitness = Population[0].Fitness;
+		Solution[i] = Seed[i];
 	}
+	SolutionFitness = ComputeBalancedFitness(Solution);
 
-	tf::poseKDLToMsg(Chain.getSegment(0).pose(0.0), BasePose);
-
-	EvolutionFitness = ComputeBalancedFitness(Prototype.Genes);
+	//Initialize Population
+	Initialize();
 }
 
 Evolution::~Evolution() {
@@ -83,8 +68,8 @@ int Evolution::GetDimensionality() {
 	return Dimensionality;
 }
 
-double Evolution::GetEvolutionFitness() {
-	return EvolutionFitness;
+double Evolution::GetSolutionFitness() {
+	return SolutionFitness;
 }
 
 void Evolution::Evolve() {
@@ -121,19 +106,44 @@ void Evolution::Evolve() {
 		}
 	}
 	
-	//Assign population
 	swap(Population, Offspring);
-	SortByFitness();
 
-	//Assign extinction factors
+	//Finalize
+	SortByFitness();
 	ComputeExtinctions();
 
-	UpdatePrototype(Population[0]);
+	if(!UpdateSolution(Population[0])) {
+		if(CheckWipeout()) {
+			//cout << "Wipeout Suggested!" << endl;
+			Initialize();
+		}
+	}
+}
 
-	//Check wipeout
-	//if(CheckWipeout()) {
-	//	cout << "WIPE SUGGESTED" <<endl;
-	//}
+void Evolution::Initialize() {
+	for(int i=0; i<Dimensionality; i++) {
+		Population[0].Genes[i] = Seed[i]; //Solution[i];
+		Population[0].Gradient[i] = 0.0;
+	}
+	Population[0].Fitness = ComputeFitness(Population[0].Genes);
+	for(int i=1; i<PopulationSize; i++) {
+		for(int j=0; j<Dimensionality; j++) {
+			Population[i].Genes[j] = GetRandomValue(Dimensions[j].Min, Dimensions[j].Max);
+			Population[i].Gradient[j] = 0.0;
+		}
+		Population[i].Fitness = ComputeFitness(Population[i].Genes);
+	}
+
+	for(int i=0; i<PopulationSize; i++) {
+		for(int j=0; j<Dimensionality; j++) {
+			Offspring[i].Genes[j] = 0.0;
+			Offspring[i].Gradient[j] = 0.0;
+		}
+	}
+	
+	SortByFitness();
+	ComputeExtinctions();
+	UpdateSolution(Population[0]);
 }
 
 Individual &Evolution::Select(vector<Individual*> &pool) {
@@ -216,6 +226,7 @@ void Evolution::Survive(int &index) {
 			double fitness = ComputeFitness(result);
 
 			defFrame = Chain.getSegment(i).pose(offspring.Genes[dimension]);
+			//Define a backward list! :) Save n computations and inverse...
 			rest = defFrame.Inverse()*rest;
 
 			double inc = Clip(offspring.Genes[dimension] + GetRandomValue(0.0, fitness), Dimensions[dimension]) - offspring.Genes[dimension];
@@ -259,6 +270,7 @@ void Evolution::Survive(int &index) {
 void Evolution::Reproduce(int &index, Individual &parentA, Individual &parentB) {
 	Individual &offspring = Offspring[index];
 
+/*
 	//Recombination
 	for(int i=0; i<Dimensionality; i++) {
 		float weight = ZeroOneUniform(RNG);
@@ -290,6 +302,33 @@ void Evolution::Reproduce(int &index, Individual &parentA, Individual &parentB) 
 		Clip(offspring);
 		offspring.Gradient[i] = offspring.Genes[i] - genesTmp[i];
 	}
+	*/
+
+	double genesTmp[Dimensionality];
+	double weight;
+	for(int i=0; i<Dimensionality; i++) {
+		//Recombination
+		weight = ZeroOneUniform(RNG);
+		offspring.Genes[i] = weight*parentA.Genes[i] + (1.0-weight)*parentB.Genes[i] + GetRandomValue(-1.0, 1.0)*parentA.Gradient[i] + GetRandomValue(-1.0, 1.0)*parentB.Gradient[i];
+
+		//Store
+		genesTmp[i] = offspring.Genes[i];
+
+		//Mutation
+		if(ZeroOneUniform(RNG) < GetMutationProbability(parentA, parentB)) {
+			offspring.Genes[i] += GetRandomValue(-1.0, 1.0) * GetMutationStrength(parentA, parentB, Dimensions[i]);
+		}
+
+		//Adoption
+		weight = ZeroOneUniform(RNG);
+		offspring.Genes[i] += 
+			weight * ZeroOneUniform(RNG) * 0.5f * (parentA.Genes[i] - offspring.Genes[i] + parentB.Genes[i] - offspring.Genes[i])
+			+ (1.0-weight) * ZeroOneUniform(RNG) * (Population[0].Genes[i] - offspring.Genes[i]);
+
+		//Clip
+		Clip(offspring.Genes[i], Dimensions[i]);
+		offspring.Gradient[i] = offspring.Genes[i] - genesTmp[i];
+	}
 
 	//Fitness
 	offspring.Fitness = ComputeFitness(offspring.Genes);
@@ -308,66 +347,25 @@ void Evolution::Reroll(int &index) {
 
 double Evolution::ComputeFitness(double* &genes) {
 	ComputeFK(genes);
-	
-    //Position Error
-    double diffX = EEPose.position.x - Target.position.x;
-    double diffY = EEPose.position.y - Target.position.y;
-    double diffZ = EEPose.position.z - Target.position.z;
-    double dP = sqrt(diffX*diffX + diffY*diffY + diffZ*diffZ);
-    
-    //Orientation Error
-    double dR = GetAngleDifference(
-      EEPose.orientation.x,
-      EEPose.orientation.y,
-      EEPose.orientation.z,
-      EEPose.orientation.w,
-      Target.orientation.x,
-      Target.orientation.y,
-      Target.orientation.z,
-      Target.orientation.w);
-
-    //Multi-Objective Weight Randomization
-	double random = ZeroOneUniform(RNG);
-	
-    diffX = EEPose.position.x - BasePose.position.x;
-    diffY = EEPose.position.y - BasePose.position.y;
-    diffZ = EEPose.position.z - BasePose.position.z;
-    double angularScale = sqrt(ChainLength*sqrt(diffX*diffX + diffY*diffY + diffZ*diffZ)) / M_PI;
-
-    return random*dP/angularScale + (1.0-random)*dR;
-}
-
-double Evolution::ComputeBalancedFitness(double* &genes) {
-	ComputeFK(genes);
-	
-    //Position Error
-    double diffX = EEPose.position.x - Target.position.x;
-    double diffY = EEPose.position.y - Target.position.y;
-    double diffZ = EEPose.position.z - Target.position.z;
-    double dP = sqrt(diffX*diffX + diffY*diffY + diffZ*diffZ);
-    
-    //Orientation Error
-    double dR = GetAngleDifference(
-      EEPose.orientation.x,
-      EEPose.orientation.y,
-      EEPose.orientation.z,
-      EEPose.orientation.w,
-      Target.orientation.x,
-      Target.orientation.y,
-      Target.orientation.z,
-      Target.orientation.w);
-	
-    diffX = EEPose.position.x - BasePose.position.x;
-    diffY = EEPose.position.y - BasePose.position.y;
-    diffZ = EEPose.position.z - BasePose.position.z;
-    double angularScale = sqrt(ChainLength*sqrt(diffX*diffX + diffY*diffY + diffZ*diffZ)) / M_PI;
-
-    return 0.5*(dP/angularScale + dR);
+	return GetPoseFitness(ZeroOneUniform(RNG));
 }
 
 double Evolution::ComputeFitness(KDL::Frame &frame) {
 	tf::poseKDLToMsg(frame, EEPose);
-	
+	return GetPoseFitness(ZeroOneUniform(RNG));
+}
+
+double Evolution::ComputeBalancedFitness(double* &genes) {
+	ComputeFK(genes);
+	return GetPoseFitness(0.5);
+}
+
+double Evolution::ComputeBalancedFitness(KDL::Frame &frame) {
+	tf::poseKDLToMsg(frame, EEPose);
+	return GetPoseFitness(0.5);
+}
+
+double Evolution::GetPoseFitness(double balance) {
     //Position Error
     double diffX = EEPose.position.x - Target.position.x;
     double diffY = EEPose.position.y - Target.position.y;
@@ -384,16 +382,13 @@ double Evolution::ComputeFitness(KDL::Frame &frame) {
       Target.orientation.y,
       Target.orientation.z,
       Target.orientation.w);
-
-    //Multi-Objective Weight Randomization
-	double random = ZeroOneUniform(RNG);
 	
     diffX = EEPose.position.x - BasePose.position.x;
     diffY = EEPose.position.y - BasePose.position.y;
     diffZ = EEPose.position.z - BasePose.position.z;
     double angularScale = sqrt(ChainLength*sqrt(diffX*diffX + diffY*diffY + diffZ*diffZ)) / M_PI;
 
-    return random*dP/angularScale + (1.0-random)*dR;
+    return balance*dP/angularScale + (1.0-balance)*dR;
 }
 
 void Evolution::ComputeFK(double* &values) {
@@ -414,15 +409,17 @@ Individual* &Evolution::GetPopulation() {
 	return Population;
 }
 
-Individual &Evolution::GetPrototype() {
-	return Prototype;
+double* &Evolution::GetSolution() {
+	return Solution;
 }
 
+/*
 void Evolution::Clip(Individual &individual) {
 	for(int i=0; i<Dimensionality; i++) {
 		individual.Genes[i] = Clip(individual.Genes[i], Dimensions[i]);
 	}
 }
+*/
 
 double Evolution::Clip(double value, const Dimension &dimension) {
 	if(value < dimension.Min) {
@@ -444,46 +441,75 @@ void Evolution::ComputeExtinctions() {
 }
 
 bool Evolution::CheckWipeout() {
-	//In this, the balanced fitness function with equal weights must be used!
-	if(ComputeFitness(Prototype.Genes) < ComputeFitness(Population[0].Genes)) {
-		double* values = new double[Dimensionality];
-		for(int i=0; i<Dimensionality; i++) {
-			values[i] = Population[0].Genes[i];
+	//TODO:::COMPARE PROGRESS WITHIN CURRENT EVOLUTION, NOT COMPARED TO GLOBALLY BEST SOLUTION!
+
+	double* values = new double[Dimensionality];
+	for(int i=0; i<Dimensionality; i++) {
+		values[i] = Population[0].Genes[i];
+	}
+	
+	KDL::Frame current, rest, result;
+	KDL::Frame defFrame, incFrame, decFrame;
+	int dimension;
+
+	dimension = 0;
+	for(int i=0; i<SegmentCount; i++) {
+		if(Chain.getSegment(i).getJoint().getType() != KDL::Joint::None) {
+			rest = rest*Chain.getSegment(i).pose(values[dimension]);
+			dimension += 1;
+		} else {
+			rest = rest*Chain.getSegment(i).pose(0.0);
 		}
-		for(int i=0; i<Dimensionality; i++) {
-			double fitness = ComputeFitness(values);
+	}
+	
+	dimension = 0;
+	for(int i=0; i<SegmentCount; i++) {
+		if(Chain.getSegment(i).getJoint().getType() != KDL::Joint::None) {
+			result = current*rest;
+			double fitness = ComputeBalancedFitness(result);
 
-			double inc = Clip(values[i] + GetRandomValue(0.0, fitness), Dimensions[i]) - values[i];
-			values[i] += inc;
-			double incFitness = ComputeFitness(values);
-			values[i] -= inc;
+			defFrame = Chain.getSegment(i).pose(values[dimension]);
+			rest = defFrame.Inverse()*rest;
 
-			double dec = Clip(values[i] - GetRandomValue(0.0, fitness), Dimensions[i]) - values[i];
-			values[i] += dec;
-			double decFitness = ComputeFitness(values);
-			values[i] -= dec;
+			double inc = Clip(values[dimension] + GetRandomValue(0.0, fitness), Dimensions[dimension]) - values[dimension];
+			incFrame = Chain.getSegment(i).pose(values[dimension]+inc);
+			result = current*incFrame*rest;
+			double incFitness = ComputeBalancedFitness(result);
+
+			double dec = Clip(values[dimension] - GetRandomValue(0.0, fitness), Dimensions[dimension]) - values[dimension];
+			decFrame = Chain.getSegment(i).pose(values[dimension]+dec);
+			result = current*decFrame*rest;
+			double decFitness = ComputeBalancedFitness(result);
 
 			if(incFitness < fitness || decFitness < fitness) {
 				delete[] values;
 				return false;
+			} else {
+				current = current*defFrame;
 			}
+
+			dimension += 1;
+		} else {
+			result = Chain.getSegment(i).pose(0.0);
+			rest = result.Inverse()*rest;
+			current = current*result;
 		}
-		delete[] values;
-		return true;
 	}
-	return false;
+
+	delete[] values;
+	return true;
 }
 
-void Evolution::UpdatePrototype(Individual &candidate) {
+bool Evolution::UpdateSolution(Individual &candidate) {
 	double candidateFitness = ComputeBalancedFitness(candidate.Genes);
-	if(candidateFitness < EvolutionFitness) {
-		EvolutionFitness = candidateFitness;
+	if(candidateFitness < SolutionFitness) {
+		SolutionFitness = candidateFitness;
 		for(int i=0; i<Dimensionality; i++) {
-			Prototype.Genes[i] = candidate.Genes[i];
-			Prototype.Gradient[i] = candidate.Gradient[i];
-			Prototype.Extinction = candidate.Extinction;
-			Prototype.Fitness = candidate.Fitness;
+			Solution[i] = candidate.Genes[i];
 		}
+		return true;
+	} else {
+		return false;
 	}
 }
 
@@ -526,7 +552,7 @@ int Evolution::GetRandomWeightedIndex(double* &probabilities, int size) {
 	return size-1;
 }
 
-double Evolution::GetAngleDifference(double& q1x, double& q1y, double& q1z, double& q1w, double q2x, double q2y, double q2z, double q2w) {
+double Evolution::GetAngleDifference(double& q1x, double& q1y, double& q1z, double& q1w, double& q2x, double& q2y, double& q2z, double& q2w) {
     if(q1x == q2x && q1y == q2y && q1z == q2z && q1w == q2w) {
       return 0.0;
     }
