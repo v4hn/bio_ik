@@ -99,6 +99,7 @@ namespace bio_ik {
                                 vector<double> &solution,
                                 double &solutionFitness,
                                 double &computationTime,
+                                double &generationCount,
                                 double fitness,
                                 double time);
 
@@ -352,13 +353,12 @@ namespace bio_ik {
     Evolution evolution(12, 4, JointCount, Dimensions, ik_seed_state, ik_pose, Chain, ChainLength);
 
     double fitness = 0.001;
-    double time = 0.01;
 
-    int generations = 0;
-    while((double)(clock() - begin_time) / CLOCKS_PER_SEC < time) {
+    //int generations = 0;
+    while((double)(clock() - begin_time) / CLOCKS_PER_SEC < timeout) {
       evolution.Evolve();
-      generations += 1;
-      if(evolution.GetSolutionFitness() < fitness) {
+      //generations += 1;
+      if(evolution.GetSolutionFitness() <= fitness) {
         break;
       }
     }
@@ -369,10 +369,9 @@ namespace bio_ik {
     }
 
     //cout << "Generations: " << generations << " Solution Fitness: " <<  evolution.GetSolutionFitness() << " (" << ((double)(clock() - begin_time) / CLOCKS_PER_SEC) << "s)" << endl;
-    return true;
 
     if(evolution.GetSolutionFitness() <= fitness) {
-      return true; 
+      return true;
     } else {
       return false;
     }
@@ -384,6 +383,7 @@ namespace bio_ik {
                                 vector<double> &solution,
                                 double &solutionFitness,
                                 double &computationTime,
+                                double &generationCount,
                                 double fitness,
                                 double time) {
     const clock_t begin_time = clock();
@@ -408,6 +408,7 @@ namespace bio_ik {
 
     solutionFitness = evolution.GetSolutionFitness();
     computationTime = (double)(clock() - begin_time) / CLOCKS_PER_SEC;
+    generationCount = generations;
     
     //cout << "Generations: " << generations << " Solution Fitness: " <<  evolution.GetSolutionFitness() << " (" << ((double)(clock() - begin_time) / CLOCKS_PER_SEC) << "s)" << endl;
 

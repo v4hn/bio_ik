@@ -170,39 +170,6 @@ void Evolution::Survive(int &index) {
 		offspring.Gradient[i] = survivor.Gradient[i];
 	}
 
-	//Perform Exploitation (Slow)
-	/*
-	double fitnessSum = 0.0;
-	for(int i=0; i<Dimensionality; i++) {
-		double fitness = ComputeFitness(offspring.Genes);
-
-		double inc = Clip(offspring.Genes[i] + GetRandomValue(0.0, fitness), Dimensions[i]) - offspring.Genes[i];
-		offspring.Genes[i] += inc;
-		double incFitness = ComputeFitness(offspring.Genes);
-		offspring.Genes[i] -= inc;
-
-		double dec = Clip(offspring.Genes[i] - GetRandomValue(0.0, fitness), Dimensions[i]) - offspring.Genes[i];
-		offspring.Genes[i] += dec;
-		double decFitness = ComputeFitness(offspring.Genes);
-		offspring.Genes[i] -= dec;
-
-		if(incFitness <= decFitness && incFitness < fitness) {
-			offspring.Genes[i] += inc;
-			offspring.Gradient[i] += inc;
-			fitness = incFitness;
-		}
-		if(decFitness <= incFitness && decFitness < fitness) {
-			offspring.Genes[i] += dec;
-			offspring.Gradient[i] += dec;
-			fitness = decFitness;
-		}
-
-		fitnessSum += fitness;
-	}
-	offspring.Fitness = fitnessSum/(double)Dimensionality;
-	*/
-	
-	//Perform Exploitation (Fast)
 	double fitnessSum = 0.0;
 	
 	KDL::Frame current, rest, result;
@@ -269,40 +236,6 @@ void Evolution::Survive(int &index) {
 
 void Evolution::Reproduce(int &index, Individual &parentA, Individual &parentB) {
 	Individual &offspring = Offspring[index];
-
-/*
-	//Recombination
-	for(int i=0; i<Dimensionality; i++) {
-		float weight = ZeroOneUniform(RNG);
-		offspring.Genes[i] = weight*parentA.Genes[i] + (1.0-weight)*parentB.Genes[i] + GetRandomValue(-1.0, 1.0)*parentA.Gradient[i] + GetRandomValue(-1.0, 1.0)*parentB.Gradient[i];
-	}
-
-	double genesTmp[Dimensionality];
-	for(int i=0; i<Dimensionality; i++) {
-		genesTmp[i] = offspring.Genes[i];
-	}
-
-	//Mutation
-	for(int i=0; i<Dimensionality; i++) {
-		if(ZeroOneUniform(RNG) < GetMutationProbability(parentA, parentB)) {
-			offspring.Genes[i] += GetRandomValue(-1.0, 1.0) * GetMutationStrength(parentA, parentB, Dimensions[i]);
-		}
-	}
-
-	//Adoption
-	for(int i=0; i<Dimensionality; i++) {
-		float weight = ZeroOneUniform(RNG);
-		offspring.Genes[i] += 
-			weight * ZeroOneUniform(RNG) * 0.5f * (parentA.Genes[i] - offspring.Genes[i] + parentB.Genes[i] - offspring.Genes[i])
-			+ (1.0-weight) * ZeroOneUniform(RNG) * (Population[0].Genes[i] - offspring.Genes[i]);
-	}
-
-	//Clip and Compute Evolutionary Gradient which is the change within Mutation and Adoption
-	for(int i=0; i<Dimensionality; i++) {
-		Clip(offspring);
-		offspring.Gradient[i] = offspring.Genes[i] - genesTmp[i];
-	}
-	*/
 
 	double genesTmp[Dimensionality];
 	double weight;
