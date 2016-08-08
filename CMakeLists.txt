@@ -36,3 +36,10 @@ target_link_libraries(bio_ik_test
     ${catkin_LIBRARIES}
     bio_ik
 )
+
+
+install(TARGETS bio_ik
+    ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+    LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION})
+
+install(FILES bio_ik_description.xml DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION})
