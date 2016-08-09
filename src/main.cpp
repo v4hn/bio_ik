@@ -164,30 +164,35 @@ void SearchOperation(bio_ik::BIO_IK solver, int sampleCount) {
   vector<double> GenerationCounts;
   
   vector<string> links;
-  //links.push_back("r_wrist_roll_link");
-  links.push_back("drill_chunk_drill_mount");
+  links.push_back("r_wrist_roll_link");
+  //links.push_back("drill_chunk_drill_mount");
 
-  vector<double> values;
-  solver.GetRandomConfiguration(values);
+  for(int k=0; k<sampleCount; k++) {
+    vector<double> values;
+    solver.GetRandomConfiguration(values);
 
-  vector<geometry_msgs::Pose> poses;
-  solver.getPositionFK(links, values, poses);
-  geometry_msgs::Pose pose = poses[0];
+    vector<geometry_msgs::Pose> poses;
+    solver.getPositionFK(links, values, poses);
+    geometry_msgs::Pose pose = poses[0];
 
-  for(int i=0; i<sampleCount; i++) {
     vector<double> seed;
     seed.resize(solver.JointCount);
+    for(int i=0; i<seed.size(); i++) {
+      seed[i] = 0.0;
+    }
     //solver.GetRandomConfiguration(seed);
     vector<double> solution;
     double solutionFitness;
     double computationTime;
     double generationCount;
 
-    Success.push_back(solver.myPositionIK(pose, seed, solution, solutionFitness, computationTime, generationCount, 0.001, 0.05));
+    Success.push_back(solver.myPositionIK(pose, seed, solution, solutionFitness, computationTime, generationCount, 0.001, 10.0));
     FitnessResults.push_back(solutionFitness);
     ComputationTimes.push_back(computationTime);
     GenerationCounts.push_back(generationCount);
     Solutions.push_back(solution);
+    
+    cout << "Optimized sample " << k << "!" << endl;
   }
 
   double avgFitness = GetAverage(FitnessResults);
@@ -218,11 +223,11 @@ int main(int argc, char *argv[]) {
   ros::init(argc, argv, "bio_ik", 1);
   
   bio_ik::BIO_IK solver;
-  //solver.initialize("robot_description", "right_arm", "base_link", "r_wrist_roll_link", 0.0);
-  solver.initialize("robot_description", "pa10_planning_group", "world", "pa10/pa10_T6_link", 0.0);
+  solver.initialize("robot_description", "right_arm", "torso_lift_link", "r_wrist_roll_link", 0.0);
+  //solver.initialize("robot_description", "pa10_planning_group", "world", "pa10/pa10_T6_link", 0.0);
 
-  FilterOperation(solver);
-  //SearchOperation(solver, 100);
+  //FilterOperation(solver);
+  SearchOperation(solver, 1000);
 
   return 0;
 }
