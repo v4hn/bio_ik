@@ -370,12 +370,8 @@ namespace bio_ik {
 
     //cout << "Generations: " << generations << " Solution Fitness: " <<  evolution.GetSolutionFitness() << " (" << ((double)(clock() - begin_time) / CLOCKS_PER_SEC) << "s)" << endl;
 
-    if(evolution.GetSolutionFitness() <= fitness) {
-      return true;
-    } else {
-      return false;
-    }
-    
+
+    return evolution.GetSolutionFitness() <= fitness;
   }
 
   bool BIO_IK::myPositionIK(const geometry_msgs::Pose &ik_pose,
