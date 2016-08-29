@@ -118,9 +118,9 @@ namespace bio_ik {
   };
 
   bool BIO_IK::initialize(const string &robot_description,
-                          const string& group_name, 
-                          const string& base_name, 
-                          const string& tip_name, 
+                          const string& group_name,
+                          const string& base_name,
+                          const string& tip_name,
                           double search_discretization) {
     setValues(robot_description, group_name, base_name, tip_name, search_discretization);
     ros::NodeHandle nh("~");
@@ -130,7 +130,7 @@ namespace bio_ik {
 
     nh.param("urdf_xml",urdf_xml,robot_description);
     nh.searchParam(urdf_xml,full_urdf_xml);
-    
+
     ROS_DEBUG_NAMED("bio_ik","Reading xml file from parameter server");
     if (!nh.getParam(full_urdf_xml, xml_string)) {
       ROS_FATAL_NAMED("bio_ik","Could not load the xml from parameter server: %s", urdf_xml.c_str());
@@ -160,7 +160,7 @@ namespace bio_ik {
     uint jointNum=0;
     for(unsigned int i=0; i<SegmentCount; ++i) {
       joint = model.getJoint(Chain.segments[i].getJoint().getName());
-      
+
       if(joint->type != urdf::Joint::UNKNOWN && joint->type != urdf::Joint::FIXED) {
           jointNum++;
 
@@ -188,7 +188,7 @@ namespace bio_ik {
 
     IndexBase = getKDLSegmentIndex(LinkNames[0]);
     IndexEE = getKDLSegmentIndex(LinkNames[LinkNames.size()-1]);
-    
+
     cout << "JointCount: " << JointCount << endl;
     cout << "SegmentCount: " << SegmentCount << endl;
     cout << "JointNames: " << JointNames.size() << endl;
@@ -219,8 +219,8 @@ namespace bio_ik {
     }
   }
 
-  bool BIO_IK::getPositionFK(const vector<string> &link_names, 
-                            const vector<double> &joint_angles, 
+  bool BIO_IK::getPositionFK(const vector<string> &link_names,
+                            const vector<double> &joint_angles,
                             vector<geometry_msgs::Pose> &poses) const {
     poses.resize(link_names.size());
     if(joint_angles.size() != JointCount) {
@@ -405,15 +405,15 @@ namespace bio_ik {
     solutionFitness = evolution.GetSolutionFitness();
     computationTime = (double)(clock() - begin_time) / CLOCKS_PER_SEC;
     generationCount = generations;
-    
+
     //cout << "Generations: " << generations << " Solution Fitness: " <<  evolution.GetSolutionFitness() << " (" << ((double)(clock() - begin_time) / CLOCKS_PER_SEC) << "s)" << endl;
 
     if(evolution.GetSolutionFitness() <= fitness) {
-      return true; 
+      return true;
     } else {
       return false;
     }
-    
+
   }
 
 }
